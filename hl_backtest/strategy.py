@@ -21,22 +21,22 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Default strategy parameters — tuned via IS/OOS grid search (Jan 2024 – May 2026)
-# Key finding: funding floor of 0.03%/8h filters noise and raises signal quality.
-# Wider exit zone (30-70) avoids premature exits before mean reversion completes.
+# Default strategy parameters — tuned via IS/OOS grid search (35 coins, Jan 2024 – May 2026)
+# Key finding: tighter SL (1.5%) with TP=4% gives TP/SL ratio of 2.67,
+# positive EV at 36% win rate. Funding floor of 0.03%/8h filters noise.
 DEFAULT_PARAMS = {
     "entry_long_pct": 5.0,
     "entry_short_pct": 95.0,
-    "exit_mean_low": 30.0,
-    "exit_mean_high": 70.0,
+    "exit_mean_low": 35.0,
+    "exit_mean_high": 65.0,
     "funding_window_h": 8,
     "percentile_lookback_days": 30,
-    "stop_loss_pct": 2.0,
+    "stop_loss_pct": 1.5,
     "take_profit_pct": 4.0,
     "max_hold_hours": 48,
     "vol_lookback_h": 168,
-    "bar_interval_h": 4,          # candle bar size in hours (1 or 4)
-    "min_abs_funding_8h": 0.0003, # ignore signals when carry is negligible
+    "bar_interval_h": 4,
+    "min_abs_funding_8h": 0.0003,
     "direction": "both",
     "cooldown_bars": 3,
 }
@@ -46,11 +46,11 @@ DEFAULT_PARAMS = {
 class StrategyParams:
     entry_long_pct: float = 5.0
     entry_short_pct: float = 95.0
-    exit_mean_low: float = 30.0
-    exit_mean_high: float = 70.0
+    exit_mean_low: float = 35.0
+    exit_mean_high: float = 65.0
     funding_window_h: int = 8
     percentile_lookback_days: int = 30
-    stop_loss_pct: float = 2.0
+    stop_loss_pct: float = 1.5
     take_profit_pct: float = 4.0
     max_hold_hours: int = 48
     vol_lookback_h: int = 168

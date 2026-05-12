@@ -76,8 +76,8 @@ def parse_args() -> argparse.Namespace:
                    help="Percentile threshold for long entry (default: 5)")
     p.add_argument("--entry-short", type=float, default=95.0,
                    help="Percentile threshold for short entry (default: 95)")
-    p.add_argument("--stop-loss", type=float, default=2.0,
-                   help="Stop loss %% (default: 2.0)")
+    p.add_argument("--stop-loss", type=float, default=1.5,
+                   help="Stop loss %% (default: 1.5)")
     p.add_argument("--take-profit", type=float, default=4.0,
                    help="Take profit %% (default: 4.0)")
     p.add_argument("--min-abs-funding", type=float, default=0.0003,
