@@ -257,6 +257,7 @@ class TestBacktestIntegration:
             entry_short_pct=50.0,
             funding_window_h=4,
             percentile_lookback_days=5,
+            min_abs_funding_8h=0.0,
         )
         snap = UniverseSnapshot(
             date=pd.Timestamp("2023-01-01", tz="UTC").to_pydatetime(),
@@ -282,6 +283,7 @@ class TestBacktestIntegration:
             entry_short_pct=50.0,
             funding_window_h=4,
             percentile_lookback_days=5,
+            min_abs_funding_8h=0.0,  # disable floor so zero-funding test still fires signals
         )
         snap = UniverseSnapshot(
             date=pd.Timestamp("2023-01-01", tz="UTC").to_pydatetime(),
@@ -309,6 +311,7 @@ class TestBacktestIntegration:
             entry_short_pct=50.0,
             funding_window_h=4,
             percentile_lookback_days=5,
+            min_abs_funding_8h=0.0,
         )
         snap = UniverseSnapshot(
             date=pd.Timestamp("2023-01-01", tz="UTC").to_pydatetime(),

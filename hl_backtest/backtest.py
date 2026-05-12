@@ -167,8 +167,7 @@ def run_backtest(
     bar_interval = _infer_bar_interval(signals_map)
     logger.debug("[%s] Inferred bar interval: %s", label, bar_interval)
 
-    # Cooldown: bars to skip after closing a position on a coin
-    COOLDOWN_BARS = 3
+    cooldown_bars = getattr(params, "cooldown_bars", 3)
     cooldown_until: dict[str, pd.Timestamp] = {}
 
     equity = initial_equity
@@ -265,7 +264,7 @@ def run_backtest(
                     hold_hours=pos.bars_held,
                 ))
                 closed_this_bar.append(coin)
-                cooldown_until[coin] = bar_time + bar_interval * COOLDOWN_BARS
+                cooldown_until[coin] = bar_time + bar_interval * cooldown_bars
                 logger.debug(
                     "[%s] %s %s EXIT %s @ %.4f, pnl=%.2f",
                     bar_time, coin, pos.direction, exit_reason, actual_exit, net_pnl,

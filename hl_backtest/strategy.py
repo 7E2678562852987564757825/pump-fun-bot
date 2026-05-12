@@ -21,19 +21,24 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Default strategy parameters (tuneable)
+# Default strategy parameters — tuned via IS/OOS grid search (Jan 2024 – May 2026)
+# Key finding: funding floor of 0.03%/8h filters noise and raises signal quality.
+# Wider exit zone (30-70) avoids premature exits before mean reversion completes.
 DEFAULT_PARAMS = {
     "entry_long_pct": 5.0,
     "entry_short_pct": 95.0,
-    "exit_mean_low": 40.0,
-    "exit_mean_high": 60.0,
+    "exit_mean_low": 30.0,
+    "exit_mean_high": 70.0,
     "funding_window_h": 8,
     "percentile_lookback_days": 30,
     "stop_loss_pct": 2.0,
-    "take_profit_pct": 1.5,
-    "max_hold_hours": 24,
+    "take_profit_pct": 4.0,
+    "max_hold_hours": 48,
     "vol_lookback_h": 168,
     "bar_interval_h": 4,          # candle bar size in hours (1 or 4)
+    "min_abs_funding_8h": 0.0003, # ignore signals when carry is negligible
+    "direction": "both",
+    "cooldown_bars": 3,
 }
 
 
@@ -41,15 +46,18 @@ DEFAULT_PARAMS = {
 class StrategyParams:
     entry_long_pct: float = 5.0
     entry_short_pct: float = 95.0
-    exit_mean_low: float = 40.0
-    exit_mean_high: float = 60.0
+    exit_mean_low: float = 30.0
+    exit_mean_high: float = 70.0
     funding_window_h: int = 8
     percentile_lookback_days: int = 30
     stop_loss_pct: float = 2.0
-    take_profit_pct: float = 1.5
-    max_hold_hours: int = 24
+    take_profit_pct: float = 4.0
+    max_hold_hours: int = 48
     vol_lookback_h: int = 168
     bar_interval_h: int = 4       # 4 for 4h candles, 1 for 1h candles
+    min_abs_funding_8h: float = 0.0003  # minimum |8h cumulative funding| to fire signal
+    direction: str = "both"             # "both" | "short_only" | "long_only"
+    cooldown_bars: int = 3              # bars to wait after closing a position
 
 
 def _rolling_percentile_rank(series: pd.Series, window: int) -> pd.Series:
@@ -124,10 +132,24 @@ def compute_signals(
     in_long_zone = df["pct_rank_8h"] < params.entry_long_pct
     in_short_zone = df["pct_rank_8h"] > params.entry_short_pct
 
-    # Only fire on fresh crossings: condition is True now AND was False one bar ago
-    # This prevents re-entering on a persistent extreme funding regime
-    df["signal_long"] = in_long_zone & (~in_long_zone.shift(1).fillna(False))
-    df["signal_short"] = in_short_zone & (~in_short_zone.shift(1).fillna(False))
+    # Absolute funding floor: ignore signal if carry is too small to justify risk
+    abs_funding = df["funding_8h"].abs()
+    abs_ok = abs_funding >= params.min_abs_funding_8h
+
+    # Fresh crossings only (prevents re-entry on persistent extreme)
+    long_cross = in_long_zone & (~in_long_zone.shift(1).fillna(False)) & abs_ok
+    short_cross = in_short_zone & (~in_short_zone.shift(1).fillna(False)) & abs_ok
+
+    # Direction filter
+    if params.direction == "short_only":
+        df["signal_long"] = pd.Series(False, index=df.index)
+        df["signal_short"] = short_cross
+    elif params.direction == "long_only":
+        df["signal_long"] = long_cross
+        df["signal_short"] = pd.Series(False, index=df.index)
+    else:
+        df["signal_long"] = long_cross
+        df["signal_short"] = short_cross
 
     df["exit_mean_rev"] = (df["pct_rank_8h"] >= params.exit_mean_low) & (
         df["pct_rank_8h"] <= params.exit_mean_high

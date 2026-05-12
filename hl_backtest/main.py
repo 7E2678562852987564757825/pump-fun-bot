@@ -78,8 +78,15 @@ def parse_args() -> argparse.Namespace:
                    help="Percentile threshold for short entry (default: 95)")
     p.add_argument("--stop-loss", type=float, default=2.0,
                    help="Stop loss %% (default: 2.0)")
-    p.add_argument("--take-profit", type=float, default=1.5,
-                   help="Take profit %% (default: 1.5)")
+    p.add_argument("--take-profit", type=float, default=4.0,
+                   help="Take profit %% (default: 4.0)")
+    p.add_argument("--min-abs-funding", type=float, default=0.0003,
+                   help="Min |8h cumulative funding| to trigger signal (default: 0.0003)")
+    p.add_argument("--max-hold-hours", type=int, default=48,
+                   help="Maximum hold duration in hours (default: 48)")
+    p.add_argument("--direction", type=str, default="both",
+                   choices=["both", "long_only", "short_only"],
+                   help="Trade direction filter (default: both)")
     p.add_argument("--funding-window", type=int, default=8,
                    help="Cumulative funding window in hours (default: 8)")
     p.add_argument("--max-coins", type=int, default=None,
@@ -243,7 +250,10 @@ def main() -> None:
         entry_short_pct=args.entry_short,
         stop_loss_pct=args.stop_loss,
         take_profit_pct=args.take_profit,
+        max_hold_hours=args.max_hold_hours,
         funding_window_h=args.funding_window,
+        min_abs_funding_8h=args.min_abs_funding,
+        direction=args.direction,
         bar_interval_h=BAR_INTERVAL_H,
     )
 
