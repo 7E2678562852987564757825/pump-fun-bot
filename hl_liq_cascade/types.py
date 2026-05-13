@@ -28,9 +28,11 @@ class AssetCtx(msgspec.Struct):
     markPx: str
     midPx: Optional[str]
     impactPxs: Optional[list[str]]
+    dayBaseVlm: Optional[str] = None
 
 
 class PositionData(msgspec.Struct):
+    coin: str           # e.g. "BTC"
     szi: str            # signed size (+ long, - short)
     entryPx: Optional[str]
     positionValue: str
@@ -79,7 +81,9 @@ class Fill(msgspec.Struct):
     fee: str
     tid: int
     feeToken: str = "USDC"
-    liquidation: Optional[str] = None   # set when this fill is a liquidation
+    liquidation: Optional[str] = None
+    builderFee: Optional[str] = None
+    twapId: Optional[int] = None
 
 
 class FundingPayment(msgspec.Struct):
@@ -88,7 +92,7 @@ class FundingPayment(msgspec.Struct):
     szi: str            # position size at time
     fundingRate: str
     time: int
-    hash: str
+    hash: str = ""
 
 
 class Trade(msgspec.Struct):

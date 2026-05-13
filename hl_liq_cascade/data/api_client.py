@@ -41,10 +41,10 @@ class HLApiClient:
         self._cfg = cfg
         self._base_url = cfg.get("base_url", _BASE_URL)
         self._timeout = cfg.get("timeout", 30.0)
-        self._rps = cfg.get("rate_limit_rps", _RATE_LIMIT_RPS)
+        self._rps = cfg.get("rate_limit_rps", cfg.get("requests_per_second", _RATE_LIMIT_RPS))
 
-        # Token bucket state
-        self._semaphore = asyncio.Semaphore(self._rps)
+        # Token bucket state — lock makes the sliding-window check+append atomic
+        self._rate_lock = asyncio.Lock()
         self._last_request_times: list[float] = []
 
         # httpx client — created lazily so the event loop is available
@@ -93,17 +93,23 @@ class HLApiClient:
     # ------------------------------------------------------------------
 
     async def _rate_limit(self) -> None:
-        """Enforce at most _rps requests per second using a sliding window."""
-        now = time.monotonic()
-        # Remove timestamps older than 1 second
-        self._last_request_times = [t for t in self._last_request_times if now - t < 1.0]
-        if len(self._last_request_times) >= self._rps:
-            # Must wait until the oldest request is > 1 second old
-            sleep_s = 1.0 - (now - self._last_request_times[0])
-            if sleep_s > 0:
-                logger.debug("Rate limit reached, sleeping %.3fs", sleep_s)
-                await asyncio.sleep(sleep_s)
-        self._last_request_times.append(time.monotonic())
+        """Enforce at most _rps requests per second using a sliding window.
+
+        The Lock makes the check-then-append atomic so concurrent coroutines
+        cannot all slip through the window check simultaneously.
+        """
+        async with self._rate_lock:
+            now = time.monotonic()
+            self._last_request_times = [t for t in self._last_request_times if now - t < 1.0]
+            if len(self._last_request_times) >= self._rps:
+                sleep_s = 1.0 - (now - self._last_request_times[0])
+                if sleep_s > 0:
+                    logger.debug("Rate limit reached, sleeping %.3fs", sleep_s)
+                    await asyncio.sleep(sleep_s)
+                    # Re-prune after sleep
+                    now = time.monotonic()
+                    self._last_request_times = [t for t in self._last_request_times if now - t < 1.0]
+            self._last_request_times.append(time.monotonic())
 
     # ------------------------------------------------------------------
     # Core POST helper with retry
@@ -231,16 +237,41 @@ class HLApiClient:
         return candles
 
     async def get_leaderboard(self) -> list[dict]:
-        """Fetch the leaderboard. Returns raw list of dicts."""
-        raw = await self._post({"type": "leaderboard"})
-        data: dict = msgspec.json.decode(raw)
-        # The leaderboard response wraps entries under a "leaderboardRows" key
-        if isinstance(data, dict):
-            return data.get("leaderboardRows", [])
-        # Fallback if it's a bare list
-        if isinstance(data, list):
-            return data
+        """Fetch the leaderboard. Returns raw list of dicts.
+
+        Falls back gracefully to an empty list if the endpoint is unavailable.
+        """
+        try:
+            raw = await self._post({"type": "leaderboard"})
+            data: Any = msgspec.json.decode(raw)
+            if isinstance(data, dict):
+                return data.get("leaderboardRows", [])
+            if isinstance(data, list):
+                return data
+        except Exception as exc:
+            logger.warning("get_leaderboard failed (%s), use get_active_addresses() instead", exc)
         return []
+
+    async def get_active_addresses(self, coins: list[str], per_coin: int = 50) -> list[str]:
+        """Collect unique active trader addresses via recentTrades across multiple coins.
+
+        Used as a fallback when the leaderboard endpoint is unavailable.
+        Returns up to per_coin * len(coins) unique addresses.
+        """
+        seen: set[str] = set()
+        for coin in coins:
+            try:
+                trades = await self.get_recent_trades(coin)
+                for t in trades:
+                    for addr in t.users:
+                        if addr and addr.startswith("0x"):
+                            seen.add(addr)
+                logger.debug("get_active_addresses: %s contributed %d addrs", coin, len(trades))
+            except Exception as exc:
+                logger.warning("recentTrades failed for %s: %s", coin, exc)
+        addrs = sorted(seen)
+        logger.info("get_active_addresses: %d unique addresses collected from %d coins", len(addrs), len(coins))
+        return addrs
 
     async def get_recent_trades(self, coin: str) -> list[Trade]:
         """Fetch recent trades for a coin."""

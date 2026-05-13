@@ -24,6 +24,9 @@ _THIRTY_DAYS_MS: int = 30 * 24 * 60 * 60 * 1_000
 # Maximum concurrent address reconstructions
 _RECONSTRUCT_CONCURRENCY = 20
 
+# Hyperliquid mainnet launched 2022-11-01; no fills can exist before this
+_HL_GENESIS_MS: int = 1_667_260_800_000
+
 
 # ---------------------------------------------------------------------------
 # Internal position state used during fill replay
@@ -186,7 +189,8 @@ class PositionStore:
         all_fills: list[Fill] = []
         seen_tids: set[int] = set()
 
-        window_start = start_ms
+        # Never scan before HL went live — avoids hundreds of empty API calls
+        window_start = max(start_ms, _HL_GENESIS_MS)
         while window_start < now_ms:
             window_end = min(window_start + _THIRTY_DAYS_MS, now_ms)
             logger.debug(
@@ -202,7 +206,7 @@ class PositionStore:
                 "  → %d new fills (total so far: %d)", len(new_fills), len(all_fills)
             )
 
-            # If we received fewer than expected and the window is recent, we're done
+            # Stop once we reach the current epoch with no fills (normal end of history)
             if len(batch) == 0 and window_end >= now_ms - _THIRTY_DAYS_MS:
                 break
             window_start = window_end
@@ -232,9 +236,9 @@ class PositionStore:
                 "reconstruct_one %s: incremental fetch from %d", address[:8], start_ms
             )
         else:
-            start_ms = 0
+            start_ms = _HL_GENESIS_MS
             logger.debug(
-                "reconstruct_one %s: full fetch from genesis", address[:8]
+                "reconstruct_one %s: full fetch from HL genesis", address[:8]
             )
 
         # 2. Fetch any new fills
@@ -367,11 +371,10 @@ class PositionStore:
 
         Uses a bounded asyncio.Semaphore to cap concurrency at _RECONSTRUCT_CONCURRENCY.
         """
-        logger.info("Fetching leaderboard (top %d)...", n)
-        raw_rows = await client.get_leaderboard()
-
-        # Extract addresses — leaderboard rows have an "ethAddress" or "user" field
+        logger.info("Fetching top addresses (target=%d)...", n)
+        # Try leaderboard first; fall back to active-address collection via recentTrades
         addresses: list[str] = []
+        raw_rows = await client.get_leaderboard()
         for entry in raw_rows:
             addr = (
                 entry.get("ethAddress")
@@ -384,8 +387,18 @@ class PositionStore:
             if len(addresses) >= n:
                 break
 
+        if not addresses:
+            logger.info("Leaderboard unavailable — collecting addresses via recentTrades")
+            _ALL_COINS = [
+                "BTC", "ETH", "SOL", "AVAX", "DOGE", "ARB", "OP",
+                "SUI", "APT", "WIF", "PEPE", "BNB", "MATIC", "LINK",
+                "ATOM", "FTM", "INJ", "SEI", "TIA", "JUP",
+            ]
+            addresses = await client.get_active_addresses(_ALL_COINS, per_coin=50)
+            addresses = addresses[:n]
+
         logger.info(
-            "reconstruct_top_n: got %d addresses from leaderboard (requested %d)",
+            "reconstruct_top_n: got %d addresses (requested %d)",
             len(addresses), n,
         )
 
